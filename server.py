@@ -177,7 +177,6 @@ def new_event_state(
     betting_countdown_seconds = max(1, int(betting_countdown_seconds))
     race_count = max(1, min(30, int(race_count)))
     created = now_iso()
-    first_deadline = iso_from_timestamp(time.time() + betting_countdown_seconds)
     races = []
     for index, lineup in enumerate(build_lineups(race_count, seed), start=1):
         races.append(
@@ -192,7 +191,7 @@ def new_event_state(
                 "payouts": [],
                 "unclaimedPool": 0,
                 "openedAt": created if index == 1 else None,
-                "bettingClosesAt": first_deadline if index == 1 else None,
+                "bettingClosesAt": None,
                 "closedAt": None,
                 "videoDrawnAt": None,
                 "resultedAt": None,
@@ -396,12 +395,10 @@ def apply_race_timers(state: dict[str, Any], now_ts: float | None = None) -> boo
         if race.get("status") != "open":
             continue
         if not race.get("bettingClosesAt"):
-            set_betting_deadline(state, race, now_value)
-            changed = True
             continue
         deadline = parse_iso_timestamp(race.get("bettingClosesAt"))
         if deadline is None:
-            set_betting_deadline(state, race, now_value)
+            race["bettingClosesAt"] = None
             changed = True
             continue
         if deadline > now_value:
@@ -645,10 +642,21 @@ def open_betting(state: dict[str, Any], payload: dict[str, Any]) -> None:
         raise ApiError("Only pending or closed races can be opened")
     race["status"] = "open"
     race["openedAt"] = race["openedAt"] or now_iso()
-    set_betting_deadline(state, race)
+    race["bettingClosesAt"] = None
     race["closedAt"] = None
     state["event"]["currentRaceNumber"] = race["raceNumber"]
     state["event"]["status"] = "running"
+
+
+def start_countdown(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    race = find_race(state, payload.get("raceNumber"))
+    if race["status"] != "open":
+        raise ApiError("Betting must be open before starting the countdown")
+    if race.get("selectedVideo") or race.get("winningTrap"):
+        raise ApiError("This race already has a selected video or result")
+    if race.get("bettingClosesAt"):
+        raise ApiError("The countdown is already running for this race")
+    set_betting_deadline(state, race)
 
 
 def close_betting(state: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -846,7 +854,7 @@ def advance_race(state: dict[str, Any], payload: dict[str, Any]) -> None:
     if next_race["status"] == "pending":
         next_race["status"] = "open"
         next_race["openedAt"] = now_iso()
-        set_betting_deadline(state, next_race)
+        next_race["bettingClosesAt"] = None
     state["event"]["currentRaceNumber"] = next_number
     state["event"]["status"] = "running"
 
@@ -954,6 +962,7 @@ class RaceNightHandler(BaseHTTPRequestHandler):
         "/api/bets/place": place_bet,
         "/api/bets/void": void_bet,
         "/api/races/open": open_betting,
+        "/api/races/start-countdown": start_countdown,
         "/api/races/close": close_betting,
         "/api/races/draw-video": draw_video,
         "/api/races/record-result": record_result,

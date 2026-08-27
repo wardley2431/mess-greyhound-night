@@ -15,7 +15,7 @@ The app uses only the Python standard library at runtime and stores event data i
 - Four-digit PINs generated for each punter.
 - Configurable maximum Mess Coin stake per punter per race.
 - Whole-coin bet entry against traps 1-6.
-- One-minute betting countdown with automatic betting close.
+- Admin-started one-minute betting countdown with automatic betting close.
 - Random race video draw as soon as the countdown expires.
 - Winning trap recording from the selected video.
 - Tote payout calculation, split proportionally between winning backers.
@@ -71,7 +71,7 @@ For local videos, place files under `static/videos/` and use paths like:
 /videos/race01.mp4
 ```
 
-Betting closes automatically after the one-minute countdown, then the app randomly draws a race video. The app avoids reusing videos until the library has been exhausted.
+Betting can stay open while the organiser takes bets. When the organiser presses **Start Countdown**, the one-minute timer begins; at zero the app closes betting and randomly draws a race video. The app avoids reusing videos until the library has been exhausted.
 
 ## Punter Login
 

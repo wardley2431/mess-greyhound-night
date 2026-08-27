@@ -104,15 +104,24 @@ class RaceNightRulesTests(unittest.TestCase):
         self.assertIn("winningTrap", private["currentRace"]["selectedVideo"])
         self.assertNotIn("winningTrap", public["currentRace"]["selectedVideo"])
 
-    def test_timer_sets_missing_deadline_for_open_race(self) -> None:
+    def test_open_race_waits_for_admin_countdown(self) -> None:
         race = server.find_race(self.state, 1)
-        race["bettingClosesAt"] = None
 
         changed = server.apply_race_timers(self.state, now_ts=1000)
 
-        self.assertTrue(changed)
+        self.assertFalse(changed)
         self.assertEqual(race["status"], "open")
-        self.assertEqual(server.parse_iso_timestamp(race["bettingClosesAt"]), 1060)
+        self.assertIsNone(race["bettingClosesAt"])
+
+    def test_admin_can_start_countdown_for_open_race(self) -> None:
+        race = server.find_race(self.state, 1)
+
+        server.start_countdown(self.state, {"raceNumber": 1})
+
+        self.assertEqual(race["status"], "open")
+        self.assertIsNotNone(race["bettingClosesAt"])
+        with self.assertRaisesRegex(server.ApiError, "already running"):
+            server.start_countdown(self.state, {"raceNumber": 1})
 
     def test_timer_auto_closes_betting_and_draws_video(self) -> None:
         race = server.find_race(self.state, 1)
@@ -143,7 +152,7 @@ class RaceNightRulesTests(unittest.TestCase):
         server.advance_race(self.state, {"raceNumber": 1})
         self.assertEqual(self.state["event"]["currentRaceNumber"], 2)
         self.assertEqual(server.find_race(self.state, 2)["status"], "open")
-        self.assertIsNotNone(server.find_race(self.state, 2)["bettingClosesAt"])
+        self.assertIsNone(server.find_race(self.state, 2)["bettingClosesAt"])
 
 
 if __name__ == "__main__":

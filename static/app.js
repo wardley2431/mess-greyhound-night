@@ -22,6 +22,7 @@ const els = {
   raceTitle: document.querySelector("#raceTitle"),
   raceStatus: document.querySelector("#raceStatus"),
   openBettingButton: document.querySelector("#openBettingButton"),
+  startCountdownButton: document.querySelector("#startCountdownButton"),
   closeBettingButton: document.querySelector("#closeBettingButton"),
   drawVideoButton: document.querySelector("#drawVideoButton"),
   resultForm: document.querySelector("#resultForm"),
@@ -418,13 +419,16 @@ function renderAdmin() {
     ? `${selected.title}${race.winningTrap ? ` - Trap ${race.winningTrap}` : ""}`
     : "No video drawn";
 
+  const isRaceOpen = race.status === "open";
   const isOpen = isBettingAccepting(race);
+  const isCountdownRunning = Boolean(race.bettingClosesAt);
   const isClosed = race.status === "closed";
   const isVideo = race.status === "video";
   const isResulted = race.status === "resulted";
   const isFinal = state.event.status === "final";
   els.openBettingButton.disabled = isFinal || !["pending", "closed"].includes(race.status) || selected || race.winningTrap;
-  els.closeBettingButton.disabled = isFinal || !isOpen;
+  els.startCountdownButton.disabled = isFinal || !isRaceOpen || isCountdownRunning || selected || race.winningTrap;
+  els.closeBettingButton.disabled = isFinal || !isRaceOpen;
   els.drawVideoButton.disabled = isFinal || !isClosed;
   els.declareResultButton.disabled = isFinal || !isVideo;
   els.nextRaceButton.disabled = isFinal || !isResulted;
@@ -799,6 +803,9 @@ function wireAdminEvents() {
 
   els.openBettingButton.addEventListener("click", () => {
     postAction("/api/races/open", { raceNumber: currentRace()?.raceNumber });
+  });
+  els.startCountdownButton.addEventListener("click", () => {
+    postAction("/api/races/start-countdown", { raceNumber: currentRace()?.raceNumber });
   });
   els.closeBettingButton.addEventListener("click", () => {
     postAction("/api/races/close", { raceNumber: currentRace()?.raceNumber });
