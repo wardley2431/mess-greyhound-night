@@ -1,0 +1,16 @@
+services:
+  mess-race-night:
+    build: .
+    container_name: mess-race-night
+    restart: unless-stopped
+    ports:
+      - "8010:8000"
+    environment:
+      RACE_HOST: 0.0.0.0
+      RACE_PORT: 8000
+    volumes:
+      - race-night-data:/app/data
+      - ./static/videos:/app/static/videos:ro
+
+volumes:
+  race-night-data:

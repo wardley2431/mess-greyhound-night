@@ -1,0 +1,16 @@
+__pycache__/
+data/
+screen-share/
+static/videos/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+server.out.log
+server.err.log
+*.log
+.DS_Store
+Thumbs.db

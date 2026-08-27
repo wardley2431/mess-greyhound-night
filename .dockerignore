@@ -1,0 +1,8 @@
+__pycache__/
+data/
+static/videos/
+server.err.log
+server.out.log
+*.pyc
+*.pyo
+.git/

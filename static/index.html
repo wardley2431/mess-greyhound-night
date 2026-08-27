@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mess Greyhound Night</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <section id="adminView" class="admin-shell" hidden>
+      <aside class="side-rail">
+        <div class="brand-block">
+          <div class="race-mark" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div>
+            <p>Race Control</p>
+            <h1 id="adminEventTitle">Mess Greyhound Night</h1>
+          </div>
+        </div>
+
+        <form id="eventForm" class="control-form">
+          <label>
+            <span>Event</span>
+            <input id="eventNameInput" maxlength="100" autocomplete="off">
+          </label>
+          <label>
+            <span>Start coins</span>
+            <input id="startingBalanceInput" type="number" min="1" max="10000" step="1">
+          </label>
+          <label>
+            <span>Max per race</span>
+            <input id="maxRaceStakeInput" type="number" min="1" max="10000" step="1">
+          </label>
+          <button class="secondary" type="submit">Save Event</button>
+        </form>
+
+        <div class="side-stats">
+          <div>
+            <span>Race</span>
+            <strong id="sideRace">-</strong>
+          </div>
+          <div>
+            <span>Status</span>
+            <strong id="sideStatus">-</strong>
+          </div>
+          <div>
+            <span>Players</span>
+            <strong id="sidePlayers">0</strong>
+          </div>
+          <div>
+            <span>Total staked</span>
+            <strong id="sidePool">0</strong>
+          </div>
+        </div>
+
+        <a class="display-link" href="/display" target="_blank" rel="noreferrer">Open TV Display</a>
+        <a class="display-link muted-link" href="/punter" target="_blank" rel="noreferrer">Open Punter Login</a>
+        <a class="display-link muted-link" href="/api/export/ledger.csv">Export Ledger CSV</a>
+        <button id="adminLogoutButton" class="secondary" type="button">Log Out</button>
+      </aside>
+
+      <main class="admin-workspace">
+        <section class="top-line">
+          <div>
+            <p id="raceKicker">Current Race</p>
+            <h2 id="raceTitle">Race 1</h2>
+          </div>
+          <div class="status-pill" id="raceStatus">Open</div>
+        </section>
+
+        <section class="action-strip">
+          <button id="openBettingButton" type="button">Open Betting</button>
+          <button id="closeBettingButton" type="button">Close Betting</button>
+          <button id="drawVideoButton" type="button">Draw Video</button>
+          <form id="resultForm" class="result-form">
+            <label>
+              <span>Winning trap</span>
+              <select id="winnerTrapSelect">
+                <option value="">From video</option>
+                <option value="1">Trap 1</option>
+                <option value="2">Trap 2</option>
+                <option value="3">Trap 3</option>
+                <option value="4">Trap 4</option>
+                <option value="5">Trap 5</option>
+                <option value="6">Trap 6</option>
+              </select>
+            </label>
+            <button id="declareResultButton" type="submit">Declare Result</button>
+          </form>
+          <button id="nextRaceButton" type="button">Next Race</button>
+          <button id="finaliseButton" type="button">Final Leaderboard</button>
+        </section>
+
+        <section class="race-area">
+          <div class="section-heading">
+            <div>
+              <p>Race Card</p>
+              <h3 id="raceCardTitle">Six Dog Lineup</h3>
+            </div>
+            <div id="selectedVideoBadge" class="video-badge">No video drawn</div>
+          </div>
+          <div id="dogGrid" class="dog-grid"></div>
+        </section>
+
+        <section class="admin-columns">
+          <div class="surface">
+            <div class="section-heading">
+              <div>
+                <p>Book</p>
+                <h3>Place Bet</h3>
+              </div>
+              <strong id="bettingStateLabel">Open</strong>
+            </div>
+            <form id="betForm" class="control-form">
+              <label>
+                <span>Player</span>
+                <select id="betPlayerSelect"></select>
+              </label>
+              <div>
+                <span class="field-label">Trap</span>
+                <div id="trapSelector" class="trap-selector"></div>
+              </div>
+              <label>
+                <span>Stake</span>
+                <input id="betStakeInput" type="number" min="1" step="1" value="1">
+              </label>
+              <button class="primary" type="submit">Record Bet</button>
+            </form>
+          </div>
+
+          <div class="surface">
+            <div class="section-heading">
+              <div>
+                <p>Mess Coins</p>
+                <h3>Players</h3>
+              </div>
+              <strong id="leaderLabel">-</strong>
+            </div>
+            <form id="playerForm" class="inline-form">
+              <input id="playerNameInput" placeholder="Player name" maxlength="80" autocomplete="off">
+              <input id="playerCoinsInput" type="number" min="0" max="10000" step="1">
+              <button class="primary" type="submit">Add</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ref</th>
+                    <th>Player</th>
+                    <th>Balance</th>
+                    <th>Staked</th>
+                    <th>Won</th>
+                    <th>Access</th>
+                  </tr>
+                </thead>
+                <tbody id="playersTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-columns">
+          <div class="surface">
+            <div class="section-heading">
+              <div>
+                <p>Ledger</p>
+                <h3 id="ledgerTitle">Current Bets</h3>
+              </div>
+              <strong id="poolLabel">0 coins</strong>
+            </div>
+            <div id="ledgerList" class="ledger-list"></div>
+          </div>
+
+          <div class="surface">
+            <div class="section-heading">
+              <div>
+                <p>Results</p>
+                <h3>Race History</h3>
+              </div>
+            </div>
+            <div id="historyList" class="history-list"></div>
+          </div>
+        </section>
+
+        <details class="surface video-library">
+          <summary>Video Library</summary>
+          <form id="videoForm" class="inline-form video-form">
+            <input id="videoTitleInput" placeholder="Video title" maxlength="100">
+            <input id="videoSourceInput" placeholder="/videos/race01.mp4 or https://..." maxlength="500">
+            <select id="videoWinnerInput">
+              <option value="1">Trap 1</option>
+              <option value="2">Trap 2</option>
+              <option value="3">Trap 3</option>
+              <option value="4">Trap 4</option>
+              <option value="5">Trap 5</option>
+              <option value="6">Trap 6</option>
+            </select>
+            <button class="secondary" type="submit">Add Video</button>
+          </form>
+          <div id="videoList" class="video-list"></div>
+        </details>
+
+        <section class="danger-row">
+          <button id="resetButton" type="button">Reset Night</button>
+        </section>
+      </main>
+    </section>
+
+    <section id="displayView" class="tv-shell" hidden>
+      <header id="tvHeader" class="tv-header">
+        <div>
+          <p id="tvKicker">Mess Greyhound Night</p>
+          <h1 id="tvRaceTitle">Race 1</h1>
+        </div>
+        <div id="tvStatus" class="tv-status">Betting Open</div>
+      </header>
+
+      <main id="tvMain" class="tv-main">
+        <section id="tvRaceStage" class="tv-race-stage">
+          <div id="tvVideoStage" class="tv-video-stage"></div>
+          <div class="tv-big-bets-panel">
+            <div class="tv-panel-heading">
+              <div>
+                <span>Biggest Bets</span>
+                <strong>Race Slip</strong>
+              </div>
+              <em id="tvBetCount">0 bets</em>
+            </div>
+            <div id="tvBigBets" class="tv-big-bets"></div>
+          </div>
+        </section>
+
+        <aside class="tv-runners-panel">
+          <div class="tv-runner-summary">
+            <div>
+              <span>Race Pool</span>
+              <strong id="tvPool">0</strong>
+            </div>
+            <div>
+              <span>Runners</span>
+              <strong>6</strong>
+            </div>
+          </div>
+          <div id="tvDogs" class="tv-dogs"></div>
+        </aside>
+      </main>
+
+      <footer id="tvLeaderboardTicker" class="tv-leaderboard-ticker">
+        <strong>Top 10</strong>
+        <div class="ticker-window">
+          <ol id="tvLeaderboard" class="ticker-track"></ol>
+        </div>
+      </footer>
+
+      <section id="finalBoard" class="final-board" hidden>
+        <p>Final Standings</p>
+        <h1 id="finalTitle">Mess Greyhound Night</h1>
+        <ol id="finalLeaderboard"></ol>
+      </section>
+    </section>
+
+    <section id="punterView" class="punter-shell" hidden>
+      <main class="punter-phone">
+        <header class="punter-header">
+          <div class="race-mark small" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div>
+            <p id="punterEventName">Mess Greyhound Night</p>
+            <h1>Mess Login</h1>
+          </div>
+        </header>
+
+        <form id="punterLoginForm" class="punter-card">
+          <label>
+            <span>Punter number</span>
+            <input id="punterReferenceInput" type="number" min="0" step="1" inputmode="numeric" autocomplete="username">
+          </label>
+          <label>
+            <span>PIN</span>
+            <input id="punterPinInput" type="password" inputmode="numeric" maxlength="12" autocomplete="current-password">
+          </label>
+          <button class="primary" type="submit">Log In</button>
+        </form>
+
+        <section id="punterBetPanel" class="punter-panel" hidden>
+          <div class="punter-account">
+            <div>
+              <p id="punterRefLabel">Punter</p>
+              <h2 id="punterName">-</h2>
+            </div>
+            <div>
+              <span>Balance</span>
+              <strong id="punterBalance">0 MC</strong>
+            </div>
+            <div>
+              <span>Race left</span>
+              <strong id="punterRaceRemaining">0 MC</strong>
+            </div>
+          </div>
+
+          <div class="punter-race-strip">
+            <div>
+              <span id="punterRaceStatus">Betting Open</span>
+              <h2 id="punterRaceTitle">Race 1</h2>
+            </div>
+            <button id="punterLogoutButton" class="secondary" type="button">Log Out</button>
+          </div>
+
+          <section class="punter-race-card">
+            <div class="section-heading compact">
+              <div>
+                <p>Race Card</p>
+                <h3 id="punterRaceCardTitle">Race 1 Runners</h3>
+              </div>
+            </div>
+            <div id="punterDogs" class="punter-dogs"></div>
+          </section>
+
+          <section class="punter-card">
+            <div class="section-heading compact">
+              <div>
+                <p>Race Slip</p>
+                <h3>This Race</h3>
+              </div>
+            </div>
+            <div id="punterCurrentBets" class="punter-list"></div>
+          </section>
+
+          <section class="punter-card">
+            <div class="section-heading compact">
+              <div>
+                <p>Leaderboard</p>
+                <h3>Top Punters</h3>
+              </div>
+            </div>
+            <ol id="punterLeaderboard" class="punter-leaderboard"></ol>
+          </section>
+
+          <section class="punter-card">
+            <div class="section-heading compact">
+              <div>
+                <p>Account</p>
+                <h3>Race History</h3>
+              </div>
+            </div>
+            <div id="punterHistory" class="punter-list"></div>
+          </section>
+        </section>
+      </main>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
