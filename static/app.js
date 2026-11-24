@@ -53,6 +53,7 @@ const els = {
   videoSourceInput: document.querySelector("#videoSourceInput"),
   videoWinnerInput: document.querySelector("#videoWinnerInput"),
   videoList: document.querySelector("#videoList"),
+  videoLibraryStatus: document.querySelector("#videoLibraryStatus"),
   tvHeader: document.querySelector("#tvHeader"),
   tvKicker: document.querySelector("#tvKicker"),
   tvRaceTitle: document.querySelector("#tvRaceTitle"),
@@ -373,16 +374,39 @@ function renderHistory() {
 }
 
 function renderVideoLibrary() {
-  els.videoList.innerHTML = state.videoLibrary
+  const videos = state.videoLibrary;
+  const used = new Set(state.races.map((race) => race.selectedVideo?.id).filter(Boolean));
+  els.videoLibraryStatus.textContent = `${videos.filter((video) => video.ready).length}/${videos.length} ready`;
+  const key = JSON.stringify([videos, [...used]]);
+  if (els.videoList.dataset.libraryKey === key || els.videoList.contains(document.activeElement)) return;
+  els.videoList.dataset.libraryKey = key;
+  els.videoList.innerHTML = videos
     .map((video) => {
       const source = video.source ? escapeHtml(video.source) : "No file linked";
+      const canPreview = /^(https?:\/\/|\/videos\/)/.test(video.source || "");
+      const sourceLink = canPreview
+        ? `<a href="${escapeHtml(video.source)}" target="_blank" rel="noopener noreferrer">${source}</a>`
+        : `<span>${source}</span>`;
+      const options = Array.from({ length: 6 }, (_, index) => {
+        const trap = index + 1;
+        return `<option value="${trap}" ${video.winningTrap === trap ? "selected" : ""}>Trap ${trap}</option>`;
+      }).join("");
+      const locked = used.has(video.id) ? "disabled" : "";
       return `
         <div class="video-row">
           <div>
             <strong>${escapeHtml(video.title)}</strong>
-            <span>Trap ${video.winningTrap} - ${source}</span>
+            ${sourceLink}
+            <span class="video-status" data-ready="${Boolean(video.ready)}">${escapeHtml(video.problem || "Ready")}</span>
           </div>
-          <button type="button" data-remove-video="${video.id}">Remove</button>
+          <label class="video-winner">
+            <span>Winning trap</span>
+            <select data-video-winner="${video.id}" aria-label="Winning trap for ${escapeHtml(video.title)}" ${locked}>
+              <option value="" ${video.winningTrap ? "" : "selected"} disabled>Not set</option>
+              ${options}
+            </select>
+          </label>
+          <button type="button" data-remove-video="${video.id}" ${locked}>Remove</button>
         </div>
       `;
     })
@@ -417,20 +441,22 @@ function renderAdmin() {
   const selected = race.selectedVideo;
   els.selectedVideoBadge.textContent = selected
     ? `${selected.title}${race.winningTrap ? ` - Trap ${race.winningTrap}` : ""}`
-    : "No video drawn";
+    : race.autoDrawError || "No video drawn";
 
   const isRaceOpen = race.status === "open";
   const isOpen = isBettingAccepting(race);
   const isCountdownRunning = Boolean(race.bettingClosesAt);
   const isClosed = race.status === "closed";
+  const hasReadyVideo = state.videoLibrary.some((video) => video.ready);
+  const isBlankDemoVideo = race.status === "video" && selected && !selected.source && !race.winningTrap;
   const isVideo = race.status === "video";
   const isResulted = race.status === "resulted";
   const isFinal = state.event.status === "final";
   els.openBettingButton.disabled = isFinal || !["pending", "closed"].includes(race.status) || selected || race.winningTrap;
-  els.startCountdownButton.disabled = isFinal || !isRaceOpen || isCountdownRunning || selected || race.winningTrap;
+  els.startCountdownButton.disabled = isFinal || !isRaceOpen || isCountdownRunning || selected || race.winningTrap || !hasReadyVideo;
   els.closeBettingButton.disabled = isFinal || !isRaceOpen;
-  els.drawVideoButton.disabled = isFinal || !isClosed;
-  els.declareResultButton.disabled = isFinal || !isVideo;
+  els.drawVideoButton.disabled = isFinal || !(isClosed || isBlankDemoVideo) || !hasReadyVideo;
+  els.declareResultButton.disabled = isFinal || !isVideo || !selected?.source;
   els.nextRaceButton.disabled = isFinal || !isResulted;
   els.finaliseButton.disabled = !state.players.length;
   els.betForm.querySelectorAll("input, select, button").forEach((item) => {
@@ -460,12 +486,16 @@ function videoMarkup(video) {
   if (!video?.source) {
     return `
       <div class="video-placeholder">
-        <span>${escapeHtml(video?.title || "Race Video")}</span>
+        <span>Video unavailable</span>
       </div>
     `;
   }
   return `
-    <video src="${escapeHtml(video.source)}" autoplay muted playsinline></video>
+    <video src="${escapeHtml(video.source)}" autoplay muted playsinline controls preload="auto"></video>
+    <div class="video-feedback" role="status" hidden>
+      <span></span>
+      <button type="button" hidden></button>
+    </div>
   `;
 }
 
@@ -473,13 +503,48 @@ function setVideoStage(html, key = "") {
   if (els.tvVideoStage.dataset.stageKey === key) return;
   els.tvVideoStage.dataset.stageKey = key;
   els.tvVideoStage.innerHTML = html;
+  wireDisplayVideo();
+}
+
+function showVideoFeedback(message, action = "") {
+  const feedback = els.tvVideoStage.querySelector(".video-feedback");
+  if (!feedback) return;
+  feedback.hidden = !message;
+  feedback.querySelector("span").textContent = message;
+  const button = feedback.querySelector("button");
+  button.hidden = !action;
+  button.textContent = action;
+}
+
+function wireDisplayVideo() {
+  const video = els.tvVideoStage.querySelector("video");
+  if (!video) return;
+  video.addEventListener("playing", () => showVideoFeedback(""));
+  video.addEventListener("waiting", () => showVideoFeedback("Loading video"));
+  video.addEventListener("error", () => {
+    const messages = {
+      2: "Video download failed",
+      3: "Video could not be decoded",
+      4: "Video file or format is unavailable",
+    };
+    showVideoFeedback(messages[video.error?.code] || "Video unavailable", "Retry video");
+  });
+  els.tvVideoStage.querySelector(".video-feedback button").addEventListener("click", () => {
+    if (video.error) video.load();
+    delete video.dataset.playAttempted;
+    playDisplayVideo();
+  });
 }
 
 function playDisplayVideo() {
   const video = els.tvVideoStage.querySelector("video");
-  if (!video) return;
+  if (!video || video.ended || video.error || video.dataset.playAttempted) return;
+  video.dataset.playAttempted = "true";
   video.muted = true;
-  video.play().catch(() => {});
+  video.play().catch((error) => {
+    if (error.name === "AbortError" || video.error) return;
+    showVideoFeedback("Playback paused", "Play race");
+  });
 }
 
 function renderTvDogs(race) {
@@ -495,7 +560,7 @@ function renderTvDogs(race) {
             <h2>${escapeHtml(entry.name)}</h2>
             <span>Age ${entry.age} - ${odds.detail}</span>
           </div>
-          <strong>${odds.label}</strong>
+          <strong title="${escapeHtml(odds.label)}">${odds.multiplier === null ? "--" : escapeHtml(odds.label)}</strong>
         </article>
       `;
     })
@@ -902,6 +967,19 @@ function wireAdminEvents() {
     const button = event.target.closest("button[data-remove-video]");
     if (!button) return;
     postAction("/api/videos/remove", { videoId: button.dataset.removeVideo });
+  });
+
+  els.videoList.addEventListener("change", (event) => {
+    const select = event.target.closest("select[data-video-winner]");
+    if (!select || !select.value) return;
+    select.disabled = true;
+    postAction("/api/videos/update", {
+      videoId: select.dataset.videoWinner,
+      winningTrap: Number(select.value),
+    }).finally(() => {
+      select.disabled = false;
+      els.videoList.dataset.libraryKey = "";
+    });
   });
 
   els.resetButton.addEventListener("click", () => {

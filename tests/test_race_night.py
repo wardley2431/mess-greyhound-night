@@ -8,6 +8,10 @@ import server
 class RaceNightRulesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.state = server.new_event_state(seed=42)
+        self.state["videoLibrary"] = [{
+            "id": "test-race", "title": "Test Race",
+            "source": "https://example.com/race.mp4", "winningTrap": 1,
+        }]
         server.add_player(self.state, {"name": "Alice"})
         server.add_player(self.state, {"name": "Bob"})
         self.alice = self.state["players"][0]
@@ -80,7 +84,7 @@ class RaceNightRulesTests(unittest.TestCase):
         server.place_bet(self.state, {"playerId": self.bob["id"], "trap": 1, "stake": 10})
         server.close_betting(self.state, {"raceNumber": 1})
         race["status"] = "video"
-        race["selectedVideo"] = {"id": "video-test", "title": "Test Video", "source": "", "winningTrap": 1}
+        race["selectedVideo"] = {"id": "video-test", "title": "Test Video", "source": "https://example.com/race.mp4", "winningTrap": 1}
         server.record_result(self.state, {"raceNumber": 1, "winningTrap": 1})
 
         self.assertEqual(server.race_pool(race), 20)
@@ -139,7 +143,7 @@ class RaceNightRulesTests(unittest.TestCase):
         race = server.find_race(self.state, 1)
         server.close_betting(self.state, {"raceNumber": 1})
         race["status"] = "video"
-        race["selectedVideo"] = {"id": "video-test", "title": "Test Video", "source": "", "winningTrap": 5}
+        race["selectedVideo"] = {"id": "video-test", "title": "Test Video", "source": "https://example.com/race.mp4", "winningTrap": 5}
         with self.assertRaisesRegex(server.ApiError, "must match"):
             server.record_result(self.state, {"raceNumber": 1, "winningTrap": 2})
 
@@ -147,7 +151,7 @@ class RaceNightRulesTests(unittest.TestCase):
         race = server.find_race(self.state, 1)
         server.close_betting(self.state, {"raceNumber": 1})
         race["status"] = "video"
-        race["selectedVideo"] = {"id": "video-test", "title": "Test Video", "source": "", "winningTrap": 4}
+        race["selectedVideo"] = {"id": "video-test", "title": "Test Video", "source": "https://example.com/race.mp4", "winningTrap": 4}
         server.record_result(self.state, {"raceNumber": 1, "winningTrap": 4})
         server.advance_race(self.state, {"raceNumber": 1})
         self.assertEqual(self.state["event"]["currentRaceNumber"], 2)

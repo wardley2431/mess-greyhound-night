@@ -17,7 +17,8 @@ The app uses only the Python standard library at runtime and stores event data i
 - Whole-coin bet entry against traps 1-6.
 - Admin-started one-minute betting countdown with automatic betting close.
 - Random race video draw as soon as the countdown expires.
-- Winning trap recording from the selected video.
+- Automatic local video discovery, with winning traps saved between events.
+- Video streaming with byte ranges for browser playback on the Pi.
 - Tote payout calculation, split proportionally between winning backers.
 - Automatic balance updates, race history, leaderboard, and final standings.
 - CSV export at `/api/export/ledger.csv`.
@@ -59,17 +60,27 @@ RACE_ADMIN_PIN=0000
 
 ## Race Videos
 
-The Video Library is in the admin console. Add each pre-recorded race video with:
+Place local recordings in `static/videos/`. MP4, M4V, WebM, and OGV files appear automatically in the admin **Video Library**, including files added while the server is running.
 
-- A title.
-- A video source, such as `/videos/race01.mp4` or a full HTTPS URL.
-- The winning trap number from that video.
+Select the real winning trap next to each recording once. The app does not infer winners from the filenames or footage. Those settings survive restarts, container rebuilds, and **Reset Night**. Resetting the night still clears players, bets, and results.
 
-For local videos, place files under `static/videos/` and use paths like:
+Only entries marked **Ready** enter the random draw. Missing files, incomplete Git LFS downloads, and recordings without a winning trap are excluded. Countdown cannot start until at least one recording is ready. Removing a local entry keeps it excluded from automatic discovery; use **Add Video** with its source to restore it.
+
+Video files stored on GitHub use Git LFS. After pulling the application on the Pi, download the actual recordings:
+
+```bash
+git lfs pull
+```
+
+The source link beside each recording opens it directly for checking. Local sources look like:
 
 ```text
 /videos/race01.mp4
 ```
+
+The **Add Video** form also accepts direct HTTP(S) video URLs, or updates the title and winner of an existing local entry without duplicating it. The browser must support the recording's video codec; changing the filename to `.mp4` does not convert the codec.
+
+The TV player autoplays muted, has playback controls, and displays a retry button if playback fails. A retry keeps the same selected recording. For an older race that drew a blank demo entry, configure the real library and click **Draw Video** to recover that race without clearing bets.
 
 Betting can stay open while the organiser takes bets. When the organiser presses **Start Countdown**, the one-minute timer begins; at zero the app closes betting and randomly draws a race video. The app avoids reusing videos until the library has been exhausted.
 
@@ -104,7 +115,7 @@ http://localhost:8010/display
 
 The Compose setup is suitable for a Raspberry Pi running Docker. It keeps event state in the named Docker volume `race-night-data`, so players, balances, bets, results, and the current race survive container rebuilds.
 
-For local race videos, create `static/videos/` beside `docker-compose.yml`, copy your `.mp4` files into it, and reference them in the admin Video Library as `/videos/filename.mp4`. The folder is mounted read-only into the container and is ignored by Git so large video files are not pushed to GitHub.
+For local race videos, create `static/videos/` beside `docker-compose.yml` and copy your files into it, or run `git lfs pull` to download tracked recordings. The folder is mounted read-only into the container. Files are discovered automatically; set each winning trap once in the admin Video Library. Configuration is kept in the persistent `race-night-data` volume.
 
 From another device on the same network, replace `localhost` with the Pi address:
 

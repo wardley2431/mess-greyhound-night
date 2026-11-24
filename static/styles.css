@@ -525,6 +525,39 @@ td button {
   margin-bottom: 18px;
 }
 
+#videoLibraryStatus {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.video-row {
+  grid-template-columns: minmax(0, 1fr) 132px auto;
+}
+
+.video-row a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--track);
+}
+
+.video-winner {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.video-winner > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.video-status[data-ready="false"] {
+  color: var(--red);
+}
+
 summary {
   cursor: pointer;
   font-weight: 900;
@@ -584,6 +617,7 @@ summary {
 }
 
 .tv-header {
+  grid-row: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -627,6 +661,7 @@ summary {
 }
 
 .tv-main {
+  grid-row: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(340px, 390px);
   gap: 20px;
@@ -642,6 +677,7 @@ summary {
 }
 
 .tv-video-stage {
+  position: relative;
   overflow: hidden;
   border: 2px solid rgba(255, 253, 247, 0.22);
   border-radius: 8px;
@@ -652,8 +688,36 @@ summary {
 .tv-video-stage video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
+}
+
+.video-feedback {
+  position: absolute;
+  inset: 0 0 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px;
+  background: rgba(7, 18, 14, 0.8);
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
+}
+
+.video-feedback span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.video-feedback button {
+  pointer-events: auto;
+  background: #fff;
+  color: #151515;
 }
 
 .video-placeholder,
@@ -816,7 +880,7 @@ summary {
 
 .tv-big-bets {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: 10px;
   min-height: 0;
 }
@@ -851,10 +915,12 @@ summary {
 
 .tv-bet-row strong,
 .tv-bet-row em {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .tv-bet-row strong {
@@ -885,6 +951,7 @@ summary {
 }
 
 .tv-leaderboard-ticker {
+  grid-row: 3;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -1321,6 +1388,13 @@ summary {
 }
 
 @media (max-width: 860px) {
+  .video-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .video-row > div {
+    grid-column: 1 / -1;
+  }
   .admin-shell,
   .tv-main {
     grid-template-columns: 1fr;

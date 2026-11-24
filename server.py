@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import random
+import re
 import threading
 import time
 import uuid
@@ -15,7 +16,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
@@ -64,20 +65,8 @@ DOGS: list[dict[str, Any]] = [
     {"dogId": 30, "name": "Eyebrows Gen", "age": 3},
 ]
 
-DEFAULT_VIDEO_LIBRARY: list[dict[str, Any]] = [
-    {"id": "video-01", "title": "Race Video 01", "source": "", "winningTrap": 1},
-    {"id": "video-02", "title": "Race Video 02", "source": "", "winningTrap": 4},
-    {"id": "video-03", "title": "Race Video 03", "source": "", "winningTrap": 2},
-    {"id": "video-04", "title": "Race Video 04", "source": "", "winningTrap": 6},
-    {"id": "video-05", "title": "Race Video 05", "source": "", "winningTrap": 3},
-    {"id": "video-06", "title": "Race Video 06", "source": "", "winningTrap": 5},
-    {"id": "video-07", "title": "Race Video 07", "source": "", "winningTrap": 2},
-    {"id": "video-08", "title": "Race Video 08", "source": "", "winningTrap": 1},
-    {"id": "video-09", "title": "Race Video 09", "source": "", "winningTrap": 5},
-    {"id": "video-10", "title": "Race Video 10", "source": "", "winningTrap": 6},
-    {"id": "video-11", "title": "Race Video 11", "source": "", "winningTrap": 3},
-    {"id": "video-12", "title": "Race Video 12", "source": "", "winningTrap": 4},
-]
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".webm", ".ogv"}
+DEFAULT_VIDEO_LIBRARY: list[dict[str, Any]] = []
 
 
 class ApiError(Exception):
@@ -163,6 +152,82 @@ def build_lineups(race_count: int = DEFAULT_RACE_COUNT, seed: int | None = None)
     raise RuntimeError("Could not build valid race lineups")
 
 
+def local_video_path(source: str) -> Path | None:
+    parsed = urlparse(source)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return None
+    path = (STATIC_DIR / unquote(parsed.path).lstrip("/")).resolve()
+    if not path.is_relative_to(STATIC_DIR.resolve()):
+        return None
+    return path
+
+
+def video_file_problem(path: Path) -> str | None:
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(128)
+        if not header:
+            return "Video file is empty"
+        if header.startswith(b"version https://git-lfs.github.com/spec/v1"):
+            return "Video download required (Git LFS)"
+    except FileNotFoundError:
+        return "Video file not found"
+    except OSError:
+        return "Video file cannot be read"
+    return None
+
+
+def video_problem(video: dict[str, Any]) -> str | None:
+    source = str(video.get("source") or "").strip()
+    if not source:
+        return "No video file linked"
+    parsed = urlparse(source)
+    if parsed.scheme not in {"http", "https"}:
+        path = local_video_path(source)
+        if path is None or path.suffix.lower() not in VIDEO_EXTENSIONS:
+            return "Invalid video source"
+        problem = video_file_problem(path)
+        if problem:
+            return problem
+    elif not parsed.netloc:
+        return "Invalid video source"
+    winner = video.get("winningTrap")
+    if type(winner) is not int or not 1 <= winner <= 6:
+        return "Winning trap required"
+    return None
+
+
+def sync_video_library(state: dict[str, Any]) -> bool:
+    library = state["videoLibrary"]
+    used_ids = {(race.get("selectedVideo") or {}).get("id") for race in state["races"]}
+    kept = [video for video in library if video.get("source") or video.get("id") in used_ids]
+    changed = kept != library
+    state["videoLibrary"] = kept
+    excluded = {unquote(value) for value in state.get("excludedVideoSources", [])}
+    known_sources = {unquote(str(video.get("source") or "")) for video in kept}
+    directory = STATIC_DIR / "videos"
+    if not directory.is_dir():
+        return changed
+    for path in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
+        if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        if not path.resolve().is_relative_to(directory.resolve()):
+            continue
+        source = f"/videos/{quote(path.name)}"
+        if unquote(source) in excluded or unquote(source) in known_sources:
+            continue
+        kept.append({
+            "id": make_id("video"),
+            "title": path.stem.replace("_", " ")[:100],
+            "source": source,
+            "winningTrap": None,
+            "discovered": True,
+        })
+        known_sources.add(unquote(source))
+        changed = True
+    return changed
+
+
 def new_event_state(
     *,
     event_name: str = "Mess Greyhound Night",
@@ -197,7 +262,7 @@ def new_event_state(
                 "resultedAt": None,
             }
         )
-    return {
+    state = {
         "schemaVersion": 1,
         "event": {
             "name": event_name,
@@ -212,8 +277,11 @@ def new_event_state(
         "players": [],
         "races": races,
         "videoLibrary": copy.deepcopy(DEFAULT_VIDEO_LIBRARY),
+        "excludedVideoSources": [],
         "adjustments": [],
     }
+    sync_video_library(state)
+    return state
 
 
 def migrate_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -221,6 +289,7 @@ def migrate_state(state: dict[str, Any]) -> dict[str, Any]:
     state.setdefault("players", [])
     state.setdefault("races", [])
     state.setdefault("videoLibrary", copy.deepcopy(DEFAULT_VIDEO_LIBRARY))
+    state.setdefault("excludedVideoSources", [])
     state.setdefault("adjustments", [])
     state.setdefault(
         "event",
@@ -266,7 +335,10 @@ def load_state_unlocked() -> dict[str, Any]:
         save_state_unlocked(state)
         return state
     with STATE_FILE.open("r", encoding="utf-8") as handle:
-        return migrate_state(json.load(handle))
+        state = migrate_state(json.load(handle))
+    if sync_video_library(state):
+        save_state_unlocked(state)
+    return state
 
 
 def save_state_unlocked(state: dict[str, Any]) -> None:
@@ -371,17 +443,18 @@ def set_betting_deadline(state: dict[str, Any], race: dict[str, Any], now_ts: fl
 def select_race_video(state: dict[str, Any], race: dict[str, Any]) -> None:
     if race.get("selectedVideo"):
         raise ApiError("A video has already been selected for this race")
-    if not state["videoLibrary"]:
-        raise ApiError("No race videos are in the library")
+    ready = [video for video in state["videoLibrary"] if video_problem(video) is None]
+    if not ready:
+        raise ApiError("No race videos are ready. Check files and winning traps in Video Library.")
 
     used_ids = {
         selected["id"]
         for item in state["races"]
         if (selected := item.get("selectedVideo"))
     }
-    available = [video for video in state["videoLibrary"] if video["id"] not in used_ids]
+    available = [video for video in ready if video["id"] not in used_ids]
     if not available:
-        available = state["videoLibrary"]
+        available = ready
     race["selectedVideo"] = copy.deepcopy(random.choice(available))
     race["status"] = "video"
     race["videoDrawnAt"] = now_iso()
@@ -474,8 +547,13 @@ def summarized_state(state: dict[str, Any], *, include_private: bool = False) ->
     )
     view["currentRace"] = current
     view["totalCoinPool"] = sum(race_pool(race) for race in view["races"])
+    if include_private:
+        for video in view["videoLibrary"]:
+            video["problem"] = video_problem(video)
+            video["ready"] = video["problem"] is None
     if not include_private:
         view["videoLibrary"] = []
+        view.pop("excludedVideoSources", None)
         for race in view["races"]:
             if race.get("selectedVideo") and not race.get("winningTrap"):
                 race["selectedVideo"].pop("winningTrap", None)
@@ -656,6 +734,8 @@ def start_countdown(state: dict[str, Any], payload: dict[str, Any]) -> None:
         raise ApiError("This race already has a selected video or result")
     if race.get("bettingClosesAt"):
         raise ApiError("The countdown is already running for this race")
+    if not any(video_problem(video) is None for video in state["videoLibrary"]):
+        raise ApiError("Set up a playable video and its winning trap in Video Library first.")
     set_betting_deadline(state, race)
 
 
@@ -670,8 +750,19 @@ def close_betting(state: dict[str, Any], payload: dict[str, Any]) -> None:
 
 def add_video(state: dict[str, Any], payload: dict[str, Any]) -> None:
     title = clean_text(payload.get("title"), "Video title", maximum=100)
-    source = str(payload.get("source") or "").strip()[:500]
+    source = clean_text(payload.get("source"), "Video source", maximum=500)
+    parsed = urlparse(source)
+    if parsed.scheme not in {"http", "https"} and local_video_path(source) is None:
+        raise ApiError("Use a /videos/filename.mp4 path or a full HTTP(S) video URL")
     winning_trap = bounded_int(payload.get("winningTrap"), "Winning trap", minimum=1, maximum=6)
+    existing = next((video for video in state["videoLibrary"] if unquote(video["source"]) == unquote(source)), None)
+    if existing:
+        update_video(state, {"videoId": existing["id"], "winningTrap": winning_trap})
+        existing["title"] = title
+        return
+    state["excludedVideoSources"] = [
+        value for value in state.get("excludedVideoSources", []) if value != source
+    ]
     state["videoLibrary"].append(
         {
             "id": make_id("video"),
@@ -682,16 +773,40 @@ def add_video(state: dict[str, Any], payload: dict[str, Any]) -> None:
     )
 
 
+def update_video(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    video_id = str(payload.get("videoId") or "")
+    if any((race.get("selectedVideo") or {}).get("id") == video_id for race in state["races"]):
+        raise ApiError("This video's winning trap is locked for the current event")
+    video = next((item for item in state["videoLibrary"] if item["id"] == video_id), None)
+    if video is None:
+        raise ApiError("Video not found", HTTPStatus.NOT_FOUND)
+    video["winningTrap"] = bounded_int(payload.get("winningTrap"), "Winning trap", minimum=1, maximum=6)
+
+
 def remove_video(state: dict[str, Any], payload: dict[str, Any]) -> None:
     video_id = str(payload.get("videoId") or "")
     used = any((race.get("selectedVideo") or {}).get("id") == video_id for race in state["races"])
     if used:
         raise ApiError("This video has already been selected for a race")
+    excluded = state.setdefault("excludedVideoSources", [])
+    for video in state["videoLibrary"]:
+        source = video.get("source", "")
+        if video["id"] == video_id and source.startswith("/videos/") and source not in excluded:
+            excluded.append(source)
     state["videoLibrary"] = [video for video in state["videoLibrary"] if video["id"] != video_id]
 
 
 def draw_video(state: dict[str, Any], payload: dict[str, Any]) -> None:
     race = find_race(state, payload.get("raceNumber"))
+    selected = race.get("selectedVideo")
+    if race["status"] == "video" and selected and not selected.get("source") and not race.get("winningTrap"):
+        race["selectedVideo"] = None
+        try:
+            select_race_video(state, race)
+        except ApiError:
+            race["selectedVideo"] = selected
+            raise
+        return
     if race["status"] != "closed":
         raise ApiError("Close betting before drawing a video")
     select_race_video(state, race)
@@ -822,6 +937,8 @@ def record_result(state: dict[str, Any], payload: dict[str, Any]) -> None:
     if race.get("winningTrap"):
         raise ApiError("This race already has a result")
 
+    if not race["selectedVideo"].get("source"):
+        raise ApiError("Draw a playable race video before declaring the result")
     winning_trap = int(race["selectedVideo"]["winningTrap"])
     if payload.get("winningTrap") not in {None, ""}:
         confirmed_trap = bounded_int(payload.get("winningTrap"), "Winning trap", minimum=1, maximum=6)
@@ -904,6 +1021,14 @@ def reset_event_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def reset_event_preserving_videos(state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    replacement = reset_event_from_payload(payload)
+    replacement["videoLibrary"] = copy.deepcopy(state["videoLibrary"])
+    replacement["excludedVideoSources"] = copy.deepcopy(state.get("excludedVideoSources", []))
+    sync_video_library(replacement)
+    return replacement
+
+
 def ledger_csv(state: dict[str, Any]) -> bytes:
     enriched = summarized_state(state)
     player_lookup = {player["id"]: player for player in enriched["players"]}
@@ -969,6 +1094,7 @@ class RaceNightHandler(BaseHTTPRequestHandler):
         "/api/races/advance": advance_race,
         "/api/event/finalise": finalise_event,
         "/api/videos/add": add_video,
+        "/api/videos/update": update_video,
         "/api/videos/remove": remove_video,
     }
 
@@ -1005,7 +1131,7 @@ class RaceNightHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/event/reset":
             try:
                 payload = self.read_json()
-                self.send_json(mutate_state(lambda _state: reset_event_from_payload(payload), include_private=True))
+                self.send_json(mutate_state(lambda state: reset_event_preserving_videos(state, payload), include_private=True))
             except ApiError as exc:
                 self.send_json({"error": str(exc)}, status=exc.status)
             except Exception as exc:
@@ -1096,10 +1222,13 @@ class RaceNightHandler(BaseHTTPRequestHandler):
             raise ApiError("JSON payload must be an object")
         return payload
 
+    def do_HEAD(self) -> None:
+        self.serve_static(urlparse(self.path).path)
+
     def serve_static(self, path: str) -> None:
         if path in {"", "/", "/admin", "/display", "/punter"}:
             path = "/index.html"
-        requested = (STATIC_DIR / path.lstrip("/")).resolve()
+        requested = (STATIC_DIR / unquote(path).lstrip("/")).resolve()
         try:
             requested.relative_to(STATIC_DIR.resolve())
         except ValueError:
@@ -1108,13 +1237,62 @@ class RaceNightHandler(BaseHTTPRequestHandler):
         if not requested.exists() or not requested.is_file():
             self.send_error(HTTPStatus.NOT_FOUND, "File not found")
             return
-        data = requested.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", mimetypes.guess_type(requested.name)[0] or "application/octet-stream")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        if requested.suffix.lower() in VIDEO_EXTENSIONS:
+            problem = video_file_problem(requested)
+            if problem:
+                self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, problem)
+                return
+        try:
+            handle = requested.open("rb")
+        except OSError:
+            self.send_error(HTTPStatus.FORBIDDEN, "File cannot be read")
+            return
+        with handle:
+            size = os.fstat(handle.fileno()).st_size
+            start, end = 0, size - 1
+            byte_range = self.headers.get("Range")
+            if byte_range:
+                match = re.fullmatch(r"bytes=(\d{0,20})-(\d{0,20})", byte_range.strip())
+                valid = match is not None and size > 0
+                if valid:
+                    first, last = match.groups()
+                    if first:
+                        start = int(first)
+                        end = min(int(last), size - 1) if last else size - 1
+                        valid = start <= end and start < size
+                    elif last and int(last) > 0:
+                        start = max(0, size - int(last))
+                    else:
+                        valid = False
+                if not valid:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.end_headers()
+                    return
+            length = max(0, end - start + 1)
+            self.send_response(HTTPStatus.PARTIAL_CONTENT if byte_range else HTTPStatus.OK)
+            self.send_header("Content-Type", mimetypes.guess_type(requested.name)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(length))
+            self.send_header("Accept-Ranges", "bytes")
+            if byte_range:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            handle.seek(start)
+            remaining = length
+            try:
+                while remaining:
+                    chunk = handle.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
 
     def send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
