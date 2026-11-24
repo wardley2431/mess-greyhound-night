@@ -741,35 +741,69 @@ async function requestPunterState() {
 }
 
 function renderPunterDogs(race, canBet, remaining) {
-  els.punterDogs.innerHTML = race.lineup
-    .map((entry) => {
-      const odds = toteReturn(race, entry.trap);
-      const winner = race.winningTrap === entry.trap ? "winner" : "";
-      return `
-        <article class="punter-dog ${winner}">
-          <div class="tv-trap trap-${entry.trap}">${entry.trap}</div>
-          <div>
-            <h3>${escapeHtml(entry.name)}</h3>
-            <span>${odds.label} - ${odds.detail}</span>
-          </div>
-          <form class="punter-dog-bet" data-punter-trap="${entry.trap}">
-            <input
-              name="stake"
-              type="number"
-              min="1"
-              max="${Math.max(0, Number(remaining))}"
-              step="1"
-              inputmode="numeric"
-              value="1"
-              aria-label="Stake for Trap ${entry.trap}"
-              ${canBet ? "" : "disabled"}
-            >
-            <button class="primary" type="submit" ${canBet ? "" : "disabled"}>Bet</button>
-          </form>
-        </article>
-      `;
-    })
-    .join("");
+  const key = JSON.stringify([punterState.player.id, race.raceNumber, race.lineup]);
+  if (els.punterDogs.dataset.raceKey !== key) {
+    els.punterDogs.dataset.raceKey = key;
+    els.punterDogs.innerHTML = race.lineup
+      .map((entry) => {
+        const odds = toteReturn(race, entry.trap);
+        const winner = race.winningTrap === entry.trap ? "winner" : "";
+        return `
+          <article class="punter-dog ${winner}">
+            <div class="tv-trap trap-${entry.trap}">${entry.trap}</div>
+            <div>
+              <h3>${escapeHtml(entry.name)}</h3>
+              <span data-punter-odds>${odds.label} - ${odds.detail}</span>
+            </div>
+            <form class="punter-dog-bet" data-punter-trap="${entry.trap}">
+              <div class="punter-stake-stepper">
+                <button type="button" data-stake-step="-1" aria-label="Decrease stake for Trap ${entry.trap}" title="Decrease stake">-</button>
+                <input
+                  name="stake"
+                  type="number"
+                  min="1"
+                  max="${Math.max(0, Number(remaining))}"
+                  step="1"
+                  inputmode="numeric"
+                  value="1"
+                  aria-label="Stake for Trap ${entry.trap}"
+                  ${canBet ? "" : "disabled"}
+                >
+                <button type="button" data-stake-step="1" aria-label="Increase stake for Trap ${entry.trap}" title="Increase stake">+</button>
+              </div>
+              <button class="primary" type="submit" ${canBet ? "" : "disabled"}>Bet</button>
+            </form>
+          </article>
+        `;
+      })
+      .join("");
+  }
+  for (const entry of race.lineup) {
+    const form = els.punterDogs.querySelector(`form[data-punter-trap="${entry.trap}"]`);
+    const card = form.closest(".punter-dog");
+    const odds = toteReturn(race, entry.trap);
+    card.querySelector("[data-punter-odds]").textContent = `${odds.label} - ${odds.detail}`;
+    card.classList.toggle("winner", race.winningTrap === entry.trap);
+    const input = form.elements.stake;
+    const maximum = Math.max(0, Number(remaining));
+    input.max = String(maximum);
+    input.disabled = !canBet;
+    if (document.activeElement !== input && maximum > 0) {
+      const value = Number.isFinite(input.valueAsNumber) ? Math.trunc(input.valueAsNumber) : 1;
+      input.value = String(Math.min(maximum, Math.max(1, value)));
+    }
+    updatePunterStakeControls(form);
+  }
+}
+
+function updatePunterStakeControls(form) {
+  const input = form.elements.stake;
+  const value = input.valueAsNumber;
+  const maximum = Number(input.max);
+  form.querySelector('[data-stake-step="-1"]').disabled = input.disabled || !(value > 1);
+  form.querySelector('[data-stake-step="1"]').disabled = input.disabled || value >= maximum;
+  form.querySelector('[type="submit"]').disabled =
+    input.disabled || !Number.isInteger(value) || value < 1 || value > maximum;
 }
 
 function renderPunterCurrentBets() {
@@ -1025,6 +1059,23 @@ function wirePunterEvents() {
       clearPunterCredentials();
       showToast(error.message);
     }
+  });
+
+  els.punterDogs.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-stake-step]");
+    if (!button || button.disabled) return;
+    const form = button.closest("form[data-punter-trap]");
+    const input = form.elements.stake;
+    const maximum = Number(input.max);
+    if (input.disabled || maximum < 1) return;
+    const current = Number.isFinite(input.valueAsNumber) ? Math.trunc(input.valueAsNumber) : 0;
+    input.value = String(Math.min(maximum, Math.max(1, current + Number(button.dataset.stakeStep))));
+    updatePunterStakeControls(form);
+  });
+
+  els.punterDogs.addEventListener("input", (event) => {
+    const input = event.target.closest('input[name="stake"]');
+    if (input) updatePunterStakeControls(input.form);
   });
 
   els.punterDogs.addEventListener("submit", async (event) => {
